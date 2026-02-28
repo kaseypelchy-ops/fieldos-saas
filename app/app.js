@@ -14,6 +14,7 @@
   const addrList = document.getElementById('addrList');
   const addrCount = document.getElementById('addrCount');
   const repSelect = document.getElementById('repSelect');
+  const switchUserBtn = document.getElementById('switchUserBtn');
 
   // Disposition UI
   const selectedAddr = document.getElementById('selectedAddr');
@@ -41,6 +42,7 @@ const required = [
   ['note', noteEl],
   ['submitDisp', submitBtn],
   ['formMsg', formMsg],
+  ['switchUserBtn', switchUserBtn],
 ];
 
 const missing = required.filter(([, el]) => !el).map(([id]) => id);
@@ -117,14 +119,17 @@ if (missing.length) {
   }
 
   function applyRoleUI(activeRep) {
-    const role = activeRep ? String(activeRep.role || '').toLowerCase() : 'manager';
-    if (role === 'rep') {
-      repSelect.value = activeRep.id;
-      repSelect.disabled = true;   // lock rep to self
-    } else {
-      repSelect.disabled = false;
-    }
+  const role = activeRep ? String(activeRep.role || '').toLowerCase() : 'manager';
+
+  if (role === 'rep') {
+    repSelect.value = activeRep.id;
+    repSelect.disabled = true;          // lock in rep mode
+    switchUserBtn.style.display = '';   // show escape hatch
+  } else {
+    repSelect.disabled = false;
+    switchUserBtn.style.display = 'none';
   }
+}
   // ---------- Addresses ----------
   async function fetchAddresses() {
   const slug = slugFromQuery() || 'zito';
@@ -340,6 +345,14 @@ payload.rep_id = repId;
         const rep = id ? REP_BY_ID[id] : null; // null => manager/all reps
         saveActiveRep(rep);
         applyRoleUI(rep);
+
+        const rows2 = await fetchAddresses();
+        renderAddresses(rows2);
+      });
+      switchUserBtn.addEventListener('click', async () => {
+        clearActiveRep();                 // back to manager mode
+        repSelect.value = '';             // All Reps (Manager)
+        applyRoleUI(null);
 
         const rows2 = await fetchAddresses();
         renderAddresses(rows2);
