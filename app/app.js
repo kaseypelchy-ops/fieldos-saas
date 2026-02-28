@@ -23,6 +23,28 @@
   const submitBtn = document.getElementById('submitDisp');
   const formMsg = document.getElementById('formMsg');
 
+  // ---- DEBUG: confirm required elements exist ----
+const required = [
+  ['tenantLogo', elLogo],
+  ['tenantName', elName],
+  ['debug', elDebug],
+  ['territorySelect', territorySelect],
+  ['refreshBtn', refreshBtn],
+  ['addrList', addrList],
+  ['addrCount', addrCount],
+  ['selectedAddr', selectedAddr],
+  ['outcome', outcomeSel],
+  ['soldWrap', soldWrap],
+  ['soldPackage', soldPackageSel],
+  ['note', noteEl],
+  ['submitDisp', submitBtn],
+  ['formMsg', formMsg],
+];
+
+const missing = required.filter(([, el]) => !el).map(([id]) => id);
+if (missing.length) {
+  throw new Error(`Missing HTML element(s): ${missing.join(', ')}`);
+}
   // App state
   let TENANT = null;
   let ADDRESSES = [];
