@@ -31,8 +31,7 @@ module.exports = async (req, res) => {
     // Build query
     let q = supabase
       .from('addresses')
-      .select('id, address, city, state, zip, lat, lng, status, territory, assigned_rep_id, created_source, created_at, updated_at')
-      .eq('company_id', company.id)
+      .select('id, address, city, state, zip, lat, lng, status, territory, assigned_rep_id, created_source, created_at, updated_at, reps:assigned_rep_id(full_name)')      .eq('company_id', company.id)
       .order('updated_at', { ascending: false })
       .limit(2000);
 

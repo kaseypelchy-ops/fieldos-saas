@@ -13,6 +13,7 @@
   const refreshBtn = document.getElementById('refreshBtn');
   const addrList = document.getElementById('addrList');
   const addrCount = document.getElementById('addrCount');
+  const repSelect = document.getElementById('repSelect');
 
   // Disposition UI
   const selectedAddr = document.getElementById('selectedAddr');
@@ -49,6 +50,8 @@ if (missing.length) {
   let TENANT = null;
   let ADDRESSES = [];
   let SELECTED_ID = null;
+  let REPS = [];        // {id, full_name, role}
+  let REP_BY_ID = {};   // id -> rep object
 
   function slugFromQuery() {
     const params = new URLSearchParams(location.search);
@@ -116,6 +119,25 @@ if (missing.length) {
     return json.rows || [];
   }
 
+  async function fetchReps() {
+   const slug = slugFromQuery() || 'zito';
+    const r = await fetch(`/api/reps?slug=${encodeURIComponent(slug)}`);
+    if (!r.ok) throw new Error(`reps failed (${r.status})`);
+    const json = await r.json();
+    if (!json || json.status !== 'ok') throw new Error('Invalid reps response');
+    return json.reps || [];
+  }
+
+  function renderRepDropdown(reps) {
+    REPS = reps;
+    REP_BY_ID = {};
+    reps.forEach(r => { REP_BY_ID[r.id] = r; });
+
+    repSelect.innerHTML =
+      `<option value="">Select Rep</option>` +
+      reps.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.full_name)} (${escapeHtml(r.role)})</option>`).join('');
+  }
+
   function uniqueTerritories(rows) {
     const set = new Set();
     rows.forEach(r => { if (r.territory) set.add(r.territory); });
@@ -145,7 +167,10 @@ if (missing.length) {
           <div class="addrTop">
             <div>
               <div class="addrName">${escapeHtml(r.address)}, ${escapeHtml(r.city)} ${escapeHtml(r.state)} ${escapeHtml(r.zip)}</div>
-              <div class="addrMeta">${escapeHtml(r.territory || '')}</div>
+              <div class="addrMeta">
+                ${escapeHtml(r.territory || '')}
+                ${r.reps && r.reps.full_name ? ` · Assigned: ${escapeHtml(r.reps.full_name)}` : ''}
+              </div>
             </div>
             ${statusBadge(r.status)}
           </div>
@@ -202,6 +227,13 @@ if (missing.length) {
     if (payload.outcome === 'sold') {
       payload.sold_package = soldPackageSel.value || '';
     }
+    const repId = repSelect.value || null;
+    if (!repId) {
+     formMsg.textContent = 'Select a rep first.';
+      submitBtn.disabled = false;
+    return;
+    }
+    payload.rep_id = repId;
 
     submitBtn.disabled = true;
     formMsg.textContent = 'Submitting…';
@@ -234,7 +266,8 @@ if (missing.length) {
       TENANT = await loadTenantConfig();
       applyBranding(TENANT);
       elDebug.textContent = JSON.stringify(TENANT, null, 2);
-
+      const reps = await fetchReps();
+      renderRepDropdown(reps);
       buildSoldPackages();
       updateSoldVisibility();
       outcomeSel.addEventListener('change', updateSoldVisibility);
