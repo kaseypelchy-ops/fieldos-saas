@@ -11,9 +11,12 @@ module.exports = async (req, res) => {
 
     const supabase = createClient(url, serviceKey);
 
-    const slug = String((req.query.slug || 'zito')).trim().toLowerCase();
-    const territory = String((req.query.territory || '')).trim();
-    const status = String((req.query.status || '')).trim();
+    const slug = String(req.query.slug || 'zito').trim().toLowerCase();
+    const territory = String(req.query.territory || '').trim();
+    const status = String(req.query.status || '').trim();
+
+    // ✅ STEP 1 ADD: rep filter (for rep view)
+    const rep_id = String(req.query.rep_id || '').trim();
 
     // Lookup tenant
     const { data: company, error: cErr } = await supabase
@@ -31,12 +34,18 @@ module.exports = async (req, res) => {
     // Build query
     let q = supabase
       .from('addresses')
-      .select('id, address, city, state, zip, lat, lng, status, territory, assigned_rep_id, created_source, created_at, updated_at, reps:assigned_rep_id(full_name)')      .eq('company_id', company.id)
+      .select(
+        'id, address, city, state, zip, lat, lng, status, territory, assigned_rep_id, created_source, created_at, updated_at, reps:assigned_rep_id(full_name)'
+      )
+      .eq('company_id', company.id)
       .order('updated_at', { ascending: false })
       .limit(2000);
 
     if (territory) q = q.eq('territory', territory);
     if (status) q = q.eq('status', status);
+
+    // ✅ STEP 1 ADD: if rep_id passed, return only that rep’s assigned addresses
+    if (rep_id) q = q.eq('assigned_rep_id', rep_id);
 
     const { data: rows, error: aErr } = await q;
     if (aErr) return res.status(500).json({ status: 'error', message: aErr.message });

@@ -33,6 +33,7 @@ const required = [
   ['refreshBtn', refreshBtn],
   ['addrList', addrList],
   ['addrCount', addrCount],
+  ['repSelect', repSelect],
   ['selectedAddr', selectedAddr],
   ['outcome', outcomeSel],
   ['soldWrap', soldWrap],
@@ -104,20 +105,50 @@ if (missing.length) {
       .replace(/'/g, '&#039;');
   }
 
+  function saveActiveRep(rep) {
+    localStorage.setItem('fieldos_active_rep', JSON.stringify(rep));
+  }
+  function loadActiveRep() {
+    try { return JSON.parse(localStorage.getItem('fieldos_active_rep') || 'null'); }
+    catch (e) { return null; }
+  }
+  function clearActiveRep() {
+    localStorage.removeItem('fieldos_active_rep');
+  }
+
+  function applyRoleUI(activeRep) {
+    const role = activeRep ? String(activeRep.role || '').toLowerCase() : 'manager';
+    if (role === 'rep') {
+      repSelect.value = activeRep.id;
+      repSelect.disabled = true;   // lock rep to self
+    } else {
+      repSelect.disabled = false;
+    }
+  }
   // ---------- Addresses ----------
   async function fetchAddresses() {
-    const slug = slugFromQuery() || 'zito';
-    const territory = territorySelect && territorySelect.value ? territorySelect.value : '';
-    const url = territory
-      ? `/api/addresses?slug=${encodeURIComponent(slug)}&territory=${encodeURIComponent(territory)}`
-      : `/api/addresses?slug=${encodeURIComponent(slug)}`;
+  const slug = slugFromQuery() || 'zito';
+  const territory = territorySelect && territorySelect.value ? territorySelect.value : '';
 
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`addresses failed (${r.status})`);
-    const json = await r.json();
-    if (!json || json.status !== 'ok') throw new Error('Invalid addresses response');
-    return json.rows || [];
-  }
+  const activeRep = loadActiveRep(); // {id, full_name, role} or null
+
+  // If saved rep is a rep-role, force repId to that rep.
+  // Otherwise, allow manager to filter by dropdown (or all if blank).
+  const repId =
+    (activeRep && String(activeRep.role || '').toLowerCase() === 'rep')
+      ? activeRep.id
+      : (repSelect && repSelect.value ? repSelect.value : '');
+
+  let url = `/api/addresses?slug=${encodeURIComponent(slug)}`;
+  if (territory) url += `&territory=${encodeURIComponent(territory)}`;
+  if (repId) url += `&rep_id=${encodeURIComponent(repId)}`;
+
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`addresses failed (${r.status})`);
+  const json = await r.json();
+  if (!json || json.status !== 'ok') throw new Error('Invalid addresses response');
+  return json.rows || [];
+}
 
   async function fetchReps() {
    const slug = slugFromQuery() || 'zito';
@@ -130,12 +161,12 @@ if (missing.length) {
 
   function renderRepDropdown(reps) {
     REPS = reps;
-    REP_BY_ID = {};
+   REP_BY_ID = {};
     reps.forEach(r => { REP_BY_ID[r.id] = r; });
 
-    repSelect.innerHTML =
-      `<option value="">Select Rep</option>` +
-      reps.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.full_name)} (${escapeHtml(r.role)})</option>`).join('');
+   repSelect.innerHTML =
+    `<option value="">All Reps (Manager)</option>` +
+    reps.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.full_name)} (${escapeHtml(r.role)})</option>`).join('');
   }
 
   function uniqueTerritories(rows) {
@@ -227,13 +258,22 @@ if (missing.length) {
     if (payload.outcome === 'sold') {
       payload.sold_package = soldPackageSel.value || '';
     }
-    const repId = repSelect.value || null;
-    if (!repId) {
-     formMsg.textContent = 'Select a rep first.';
-      submitBtn.disabled = false;
-    return;
+    const activeRep = loadActiveRep();
+    let repId = null;
+
+    if (activeRep && String(activeRep.role || '').toLowerCase() === 'rep') {
+      repId = activeRep.id;          // forced
+    } else {
+      repId = repSelect.value || null; // manager chooses
     }
-    payload.rep_id = repId;
+
+    if (!repId) {
+      formMsg.textContent = 'Select a rep first.';
+      submitBtn.disabled = false;
+      return;
+    }
+
+payload.rep_id = repId;
 
     submitBtn.disabled = true;
     formMsg.textContent = 'Submitting…';
@@ -271,7 +311,15 @@ if (missing.length) {
       buildSoldPackages();
       updateSoldVisibility();
       outcomeSel.addEventListener('change', updateSoldVisibility);
-
+      // Restore last selected rep (role-based)
+      const saved = loadActiveRep();
+      if (saved && saved.id && REP_BY_ID[saved.id]) {
+        repSelect.value = saved.id;
+        applyRoleUI(saved);
+      } else {
+        clearActiveRep();
+        applyRoleUI(null);
+      }
       // Load addresses
       const allRows = await fetch(`/api/addresses?slug=${encodeURIComponent(slugFromQuery() || 'zito')}`)
         .then(r => r.json())
@@ -287,7 +335,15 @@ if (missing.length) {
         const rows2 = await fetchAddresses();
         renderAddresses(rows2);
       });
+      repSelect.addEventListener('change', async () => {
+        const id = repSelect.value || '';
+        const rep = id ? REP_BY_ID[id] : null; // null => manager/all reps
+        saveActiveRep(rep);
+        applyRoleUI(rep);
 
+        const rows2 = await fetchAddresses();
+        renderAddresses(rows2);
+      });
       territorySelect.addEventListener('change', async () => {
         const rows2 = await fetchAddresses();
         renderAddresses(rows2);
