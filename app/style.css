@@ -90,3 +90,72 @@ html,body{ margin:0; padding:0; background: var(--bg); color: var(--text); font-
   border: 1px solid rgba(255,255,255,0.10);
   overflow:auto;
 }
+.row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.rowRight{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+.muted{ color: var(--muted); }
+
+.input{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  outline: none;
+}
+
+select.input{ min-width: 220px; }
+textarea.input{ resize: vertical; min-height: 90px; }
+
+.split{
+  display:grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 900px){
+  .split{ grid-template-columns: 1fr; }
+  select.input{ min-width: 0; }
+}
+
+.addrList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.addrItem{
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.18);
+  cursor: pointer;
+}
+.addrItem:hover{
+  border-color: var(--border);
+}
+.addrTop{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.addrName{ font-weight: 900; }
+.addrMeta{ color: var(--muted); font-size: 12px; margin-top:4px; }
+
+.badge{
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  white-space:nowrap;
+}
+
+.addrItem.selected{
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(70,187,164,0.18);
+}
+
+.panelTitle{ font-weight: 900; margin-bottom: 10px; }
+.selectedAddr{ margin-bottom: 10px; }
+
+.form{ display:flex; flex-direction:column; gap:10px; }
+.label{ font-size: 12px; font-weight: 900; color: var(--muted); }

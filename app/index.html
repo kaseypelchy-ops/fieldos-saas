@@ -23,17 +23,62 @@
     </div>
   </header>
 
-  <main class="container">
-    <section class="card">
-      <h2>Packages</h2>
-      <div id="packages" class="packagesGrid"></div>
-    </section>
+<main class="container">
+  <section class="card">
+    <div class="row">
+      <h2 style="margin:0;">Addresses</h2>
 
-    <section class="card">
-      <h2>Status</h2>
-      <pre id="debug" class="debug">Loading tenant config…</pre>
-    </section>
-  </main>
+      <div class="rowRight">
+        <select id="territorySelect" class="input">
+          <option value="">All Territories</option>
+        </select>
+
+        <button id="refreshBtn" class="ctaBtn" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div>
+        <div id="addrCount" class="muted" style="margin:8px 0 10px;">Loading…</div>
+        <div id="addrList" class="addrList"></div>
+      </div>
+
+      <div>
+        <div class="panelTitle">Disposition</div>
+        <div id="selectedAddr" class="selectedAddr muted">Select an address to disposition</div>
+
+        <div class="form">
+          <label class="label">Outcome</label>
+          <select id="outcome" class="input">
+            <option value="not_home">Not Home</option>
+            <option value="not_interested">Not Interested</option>
+            <option value="go_back">Go Back Later</option>
+            <option value="sold">Sold</option>
+          </select>
+
+          <div id="soldWrap" style="display:none;">
+            <label class="label">Sold Package</label>
+            <select id="soldPackage" class="input"></select>
+          </div>
+
+          <label class="label">Note</label>
+          <textarea id="note" class="input" rows="4" placeholder="Optional note..."></textarea>
+
+          <button id="submitDisp" class="ctaBtn" type="button" style="width:100%; margin-top:10px;">
+            Submit Disposition
+          </button>
+
+          <div id="formMsg" class="muted" style="margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Status</h2>
+    <pre id="debug" class="debug">Loading tenant config…</pre>
+  </section>
+</main>
 
   <script src="./app.js"></script>
 </body>
