@@ -1,1 +1,40 @@
-<h1>FieldOS SaaS is live</h1>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FieldOS</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img id="tenantLogo" class="logo" alt="Tenant Logo" />
+      <div class="brandText">
+        <div id="tenantName" class="tenantName">Loading…</div>
+        <div class="tenantSub">FieldOS</div>
+      </div>
+    </div>
+
+    <div class="ctaWrap">
+      <a id="ctaCoudersport" class="ctaBtn" href="#" style="display:none;">Call Coudersport</a>
+      <a id="ctaWellsboro" class="ctaBtn" href="#" style="display:none;">Call Wellsboro</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Packages</h2>
+      <div id="packages" class="packagesGrid"></div>
+    </section>
+
+    <section class="card">
+      <h2>Status</h2>
+      <pre id="debug" class="debug">Loading tenant config…</pre>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

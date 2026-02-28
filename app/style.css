@@ -1,0 +1,92 @@
+:root{
+  --brand: #46bba4;
+  --bg: #00193d;
+  --text: #eaf2ff;
+  --muted: rgba(234,242,255,0.7);
+  --card: rgba(255,255,255,0.06);
+  --border: rgba(70,187,164,0.45);
+}
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+.topbar{
+  position: sticky;
+  top:0;
+  z-index:10;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:16px;
+  padding:14px 16px;
+  background: rgba(0,0,0,0.25);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.brand{ display:flex; align-items:center; gap:12px; }
+.logo{
+  width:44px; height:44px; border-radius:12px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  object-fit: cover;
+}
+.tenantName{ font-weight: 800; letter-spacing: 0.2px; }
+.tenantSub{ font-size: 12px; color: var(--muted); margin-top:2px; }
+
+.ctaWrap{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.ctaBtn{
+  text-decoration:none;
+  padding:10px 12px;
+  border-radius: 14px;
+  border: 2px solid var(--brand);
+  color: #000;
+  font-weight: 800;
+  background: var(--brand);
+  font-size: 14px;
+  white-space:nowrap;
+}
+.ctaBtn:hover{
+  background: transparent;
+  color: var(--brand);
+}
+
+.container{
+  max-width: 1100px;
+  margin: 18px auto;
+  padding: 0 16px 28px;
+  display:grid;
+  gap:16px;
+}
+
+.card{
+  background: var(--card);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.packagesGrid{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pkg{
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(0,0,0,0.18);
+}
+.pkg .name{ font-weight: 900; font-size: 16px; margin-bottom: 6px; }
+.pkg .speed{ color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.pkg .price{ font-size: 20px; font-weight: 900; }
+.debug{
+  margin:0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.10);
+  overflow:auto;
+}
