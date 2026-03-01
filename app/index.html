@@ -23,7 +23,24 @@
       <button id="signOutBtn" class="ctaBtn" type="button" style="display:none;">Sign Out</button>
     </div>
   </header>
+    <div id="authBox" class="card" style="max-width:420px;margin:40px auto;">
+      <h2>Sign In</h2>
 
+      <input id="authEmail" class="input" placeholder="Email" />
+      <input id="authPassword" type="password" class="input" placeholder="Password" />
+
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="loginBtn" class="ctaBtn">Login</button>
+        <button id="signupBtn" class="ctaBtn">Sign Up</button>
+      </div>
+
+      <button id="magicBtn" class="ctaBtn" style="margin-top:10px;width:100%;">
+        Send Magic Link
+      </button>
+
+      <div id="authMsg" class="muted" style="margin-top:10px;"></div>
+    </div>
+    
 <main class="container">
   <section class="card">
     <div class="row">

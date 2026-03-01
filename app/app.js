@@ -5,8 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Otherwise (quick start): paste your values here:
 const SUPABASE_URL = "https://aesyrhtzdywvsxxffatj.supabase.co";
-const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
-
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlc3lyaHR6ZHl3dnN4eGZmYXRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyNjgxNTMsImV4cCI6MjA4Nzg0NDE1M30.hE2PnN0NR8m-TgYm62mjJ4F4hrVmKIyTEvPupPx8SyI";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 (function () {
@@ -94,6 +93,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     throw new Error(`Missing HTML element(s): ${missing.join(', ')}`);
   }
 
+  const authBox = document.getElementById('authBox');
+  const authEmail = document.getElementById('authEmail');
+  const authPassword = document.getElementById('authPassword');
+  const loginBtn = document.getElementById('loginBtn');
+  const signupBtn = document.getElementById('signupBtn');
+  const magicBtn = document.getElementById('magicBtn');
+  const authMsg = document.getElementById('authMsg');
   // ─────────────────────────────────────────────────────────
   // App state
   // ─────────────────────────────────────────────────────────
@@ -435,27 +441,80 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
   }
 
-  // ─────────────────────────────────────────────────────────
-  // Auth gating (minimal)
-  // ─────────────────────────────────────────────────────────
-  async function ensureSignedInOrExplain() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      if (signOutBtn) signOutBtn.style.display = '';
-      return true;
-    }
+ // ─────────────────────────────────────────────────────────
+// Auth gating (minimal)
+// ─────────────────────────────────────────────────────────
+async function ensureSignedInOrExplain() {
+  const { data: { session } } = await supabase.auth.getSession();
 
-    elName.textContent = 'FieldOS';
-    elDebug.textContent =
-      'AUTH REQUIRED:\n' +
-      'You must be signed in to use FieldOS now (RLS enabled).\n\n' +
-      'Open Supabase Auth and sign in from your login UI.\n' +
-      'If you have not added the login form yet, do that next.';
-
-    if (signOutBtn) signOutBtn.style.display = 'none';
-    return false;
+  if (session?.access_token) {
+    if (authBox) authBox.style.display = 'none';
+    const main = document.querySelector('main');
+    if (main) main.style.display = '';
+    if (signOutBtn) signOutBtn.style.display = '';
+    return true;
   }
 
+  if (authBox) authBox.style.display = '';
+  const main = document.querySelector('main');
+  if (main) main.style.display = 'none';
+  if (signOutBtn) signOutBtn.style.display = 'none';
+
+  // Optional messaging
+  elName.textContent = 'FieldOS';
+  elDebug.textContent =
+    'AUTH REQUIRED:\n' +
+    'Please sign in to use FieldOS.\n';
+
+  return false;
+}
+
+  async function handleLogin() {
+    authMsg.textContent = "Signing in...";
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: authEmail.value,
+      password: authPassword.value
+    });
+
+    if (error) {
+      authMsg.textContent = error.message;
+      return;
+    }
+
+    location.reload();
+  }
+
+  async function handleSignup() {
+    authMsg.textContent = "Creating account...";
+
+  const { error } = await supabase.auth.signUp({
+    email: authEmail.value,
+    password: authPassword.value
+  });
+
+  if (error) {
+    authMsg.textContent = error.message;
+    return;
+  }
+
+  authMsg.textContent = "Check your email to confirm.";
+}
+
+async function handleMagicLink() {
+  authMsg.textContent = "Sending magic link...";
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email: authEmail.value
+  });
+
+  if (error) {
+    authMsg.textContent = error.message;
+    return;
+  }
+
+  authMsg.textContent = "Check your email for login link.";
+}
   // ─────────────────────────────────────────────────────────
   // Boot
   // ─────────────────────────────────────────────────────────
@@ -520,6 +579,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         applyRoleUI(null);
         await refreshAll();
       });
+
+      loginBtn.addEventListener('click', handleLogin);
+      signupBtn.addEventListener('click', handleSignup);
+      magicBtn.addEventListener('click', handleMagicLink);
 
       territorySelect.addEventListener('change', refreshAll);
       submitBtn.addEventListener('click', submitDisposition);
