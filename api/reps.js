@@ -1,41 +1,29 @@
-// /api/reps.js
-const { createClient } = require('@supabase/supabase-js');
+// api/reps.js
+const { supabaseAnonWithToken, requireUser, getContext } = require('./_auth');
 
 module.exports = async (req, res) => {
   try {
-    const url = process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) {
-      return res.status(500).json({ status: 'error', message: 'Missing Supabase env vars.' });
-    }
+    res.setHeader('Cache-Control', 'no-store');
 
-    const supabase = createClient(url, serviceKey);
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+    const supabase = supabaseAnonWithToken(token);
 
-    const slug = String(req.query.slug || 'zito').trim().toLowerCase();
+    const auth = await requireUser(req, supabase);
+    if (auth.error) return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
 
-    const { data: company, error: cErr } = await supabase
-      .from('companies')
-      .select('id, subscription_status')
-      .eq('slug', slug)
-      .maybeSingle();
+    const ctx = await getContext(supabase, auth.user);
+    if (ctx.error) return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
 
-    if (cErr) return res.status(500).json({ status: 'error', message: cErr.message });
-    if (!company) return res.status(404).json({ status: 'error', message: 'Company not found' });
-    if (String(company.subscription_status).toLowerCase() === 'canceled') {
-      return res.status(402).json({ status: 'payment_required', message: 'Subscription canceled.' });
-    }
-
-    const { data: reps, error: rErr } = await supabase
+    const { data: reps, error } = await supabase
       .from('reps')
-      .select('id, full_name, role, is_active')
-      .eq('company_id', company.id)
+      .select('id, full_name, role, is_active, user_id')
       .eq('is_active', true)
       .order('role', { ascending: false })
       .order('full_name', { ascending: true });
 
-    if (rErr) return res.status(500).json({ status: 'error', message: rErr.message });
+    if (error) return res.status(500).json({ status: 'error', message: error.message });
 
-    return res.status(200).json({ status: 'ok', company_id: company.id, reps });
+    return res.status(200).json({ status: 'ok', role: ctx.role, reps: reps || [] });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: e.message || String(e) });
   }

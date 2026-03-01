@@ -1,5 +1,5 @@
 // /api/metrics.js
-const { createClient } = require('@supabase/supabase-js');
+const { supabaseAnonWithToken, requireUser, getContext, getMyRepId } = require('./_auth');
 
 function chunk(arr, size) {
   const out = [];
@@ -9,65 +9,75 @@ function chunk(arr, size) {
 
 module.exports = async (req, res) => {
   try {
-    // Always fresh (no CDN caching for metrics)
     res.setHeader('Cache-Control', 'no-store');
 
-    const url = process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) {
-      return res.status(500).json({ status: 'error', message: 'Missing Supabase env vars.' });
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+    const supabase = supabaseAnonWithToken(token);
+
+    // 1) Require signed-in user
+    const auth = await requireUser(req, supabase);
+    if (auth.error) {
+      return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
     }
 
-    const supabase = createClient(url, serviceKey);
-
-    const slug = String(req.query.slug || 'zito').trim().toLowerCase();
-    const rep_id = String(req.query.rep_id || '').trim();        // optional
-    const territory = String(req.query.territory || '').trim();  // optional
-
-    // Tenant lookup
-    const { data: company, error: cErr } = await supabase
-      .from('companies')
-      .select('id, subscription_status')
-      .eq('slug', slug)
-      .maybeSingle();
-
-    if (cErr) return res.status(500).json({ status: 'error', message: cErr.message });
-    if (!company) return res.status(404).json({ status: 'error', message: 'Company not found' });
-    if (String(company.subscription_status).toLowerCase() === 'canceled') {
-      return res.status(402).json({ status: 'payment_required', message: 'Subscription canceled.' });
+    // 2) Resolve company + role from membership (RLS enforced)
+    const ctx = await getContext(supabase, auth.user);
+    if (ctx.error) {
+      return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
     }
 
-    // ---------- Assigned count (addresses) ----------
+    const territory = String(req.query.territory || '').trim();
+    const rep_id_param = String(req.query.rep_id || '').trim();
+
+    // 3) Role rules: reps can only see their own metrics
+    let repId = '';
+    if (ctx.role === 'rep') {
+      const myRepId = await getMyRepId(supabase, ctx.company.id, auth.user.id);
+      if (!myRepId) {
+        return res.status(403).json({
+          status: 'error',
+          message: 'Rep is not linked to an auth user (reps.user_id missing).'
+        });
+      }
+      repId = myRepId;
+    } else {
+      // manager/admin can optionally filter to a rep
+      repId = rep_id_param || '';
+    }
+
+    // 4) Assigned count (addresses)
     let addrQ = supabase
       .from('addresses')
-      .select('id', { count: 'exact', head: true })
-      .eq('company_id', company.id);
+      .select('id', { count: 'exact', head: true });
 
+    // RLS already scopes to company; optional filters:
     if (territory) addrQ = addrQ.eq('territory', territory);
-    if (rep_id) addrQ = addrQ.eq('assigned_rep_id', rep_id);
+    if (repId) addrQ = addrQ.eq('assigned_rep_id', repId);
 
     const { count: assignedCount, error: addrErr } = await addrQ;
-    if (addrErr) return res.status(500).json({ status: 'error', message: addrErr.message });
+    if (addrErr) {
+      return res.status(500).json({ status: 'error', message: addrErr.message });
+    }
 
-    // ---------- Dispositions breakdown ----------
+    // 5) Disposition aggregation
     const counts = { sold: 0, not_home: 0, not_interested: 0, go_back: 0, other: 0 };
     let totalDisp = 0;
 
-    // Base query builder for dispositions
     function baseDispQ() {
       let q = supabase
         .from('dispositions')
-        .select('outcome')
-        .eq('company_id', company.id);
+        .select('outcome');
 
-      if (rep_id) q = q.eq('rep_id', rep_id);
+      // RLS scopes to company; optional rep filter
+      if (repId) q = q.eq('rep_id', repId);
       return q;
     }
 
-    // If no territory filter: simple read
     if (!territory) {
       const { data: dispRows, error: dispErr } = await baseDispQ().limit(20000);
-      if (dispErr) return res.status(500).json({ status: 'error', message: dispErr.message });
+      if (dispErr) {
+        return res.status(500).json({ status: 'error', message: dispErr.message });
+      }
 
       (dispRows || []).forEach(r => {
         const o = String(r.outcome || '').toLowerCase();
@@ -77,17 +87,19 @@ module.exports = async (req, res) => {
 
       totalDisp = (dispRows || []).length;
     } else {
-      // Territory filter: find address ids first, then chunk "IN" queries
+      // Territory filter: find address ids in territory (RLS scopes to company)
       const { data: addrRows, error: tErr } = await supabase
         .from('addresses')
         .select('id')
-        .eq('company_id', company.id)
         .eq('territory', territory)
         .limit(10000);
 
-      if (tErr) return res.status(500).json({ status: 'error', message: tErr.message });
+      if (tErr) {
+        return res.status(500).json({ status: 'error', message: tErr.message });
+      }
 
       const ids = (addrRows || []).map(r => r.id);
+
       if (ids.length === 0) {
         return res.status(200).json({
           status: 'ok',
@@ -104,15 +116,15 @@ module.exports = async (req, res) => {
         });
       }
 
-      // Chunk to avoid huge IN lists (safe as you scale)
-      const chunks = chunk(ids, 1000);
-
-      for (const idsChunk of chunks) {
+      // Chunk IN lists so it scales
+      for (const idsChunk of chunk(ids, 1000)) {
         const { data: dispRows, error: dispErr } = await baseDispQ()
           .in('address_id', idsChunk)
           .limit(20000);
 
-        if (dispErr) return res.status(500).json({ status: 'error', message: dispErr.message });
+        if (dispErr) {
+          return res.status(500).json({ status: 'error', message: dispErr.message });
+        }
 
         (dispRows || []).forEach(r => {
           const o = String(r.outcome || '').toLowerCase();

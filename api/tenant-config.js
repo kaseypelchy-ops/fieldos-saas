@@ -1,61 +1,22 @@
-// /api/tenant-config.js
-const { createClient } = require('@supabase/supabase-js');
-
-function getSlugFromHost(req) {
-  const host = (req.headers.host || '').toLowerCase();
-  const parts = host.split('.');
-  if (parts.length >= 3) {
-    const sub = parts[0];
-    if (sub && sub !== 'www' && sub !== 'app') return sub;
-  }
-  return null;
-}
+// api/tenant-config.js
+const { supabaseAnonWithToken, requireUser, getContext } = require('./_auth');
 
 module.exports = async (req, res) => {
   try {
-    const url = process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    res.setHeader('Cache-Control', 'no-store');
 
-    if (!url || !serviceKey) {
-      return res.status(500).json({
-        status: 'error',
-        message: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables.'
-      });
-    }
+    const token = (req.headers.authorization || '').startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null;
 
-    const supabase = createClient(url, serviceKey);
+    const supabase = supabaseAnonWithToken(token || ''); // requires token below anyway
+    const auth = await requireUser(req, supabase);
+    if (auth.error) return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
 
-    const slug =
-      (req.query && String(req.query.slug || '').trim().toLowerCase()) ||
-      getSlugFromHost(req) ||
-      'zito';
+    const ctx = await getContext(supabase, auth.user);
+    if (ctx.error) return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
 
-    const { data, error } = await supabase
-      .from('companies')
-      .select('id, slug, name, logo_url, primary_color, config_json, subscription_status, seats')
-      .eq('slug', slug)
-      .maybeSingle();
-
-    if (error) return res.status(500).json({ status: 'error', message: error.message });
-    if (!data) return res.status(404).json({ status: 'error', message: `Tenant not found for slug: ${slug}` });
-
-    if (String(data.subscription_status).toLowerCase() === 'canceled') {
-      return res.status(402).json({ status: 'payment_required', message: 'Subscription canceled.' });
-    }
-
-    return res.status(200).json({
-      status: 'ok',
-      tenant: {
-        id: data.id,
-        slug: data.slug,
-        name: data.name,
-        logo_url: data.logo_url,
-        primary_color: data.primary_color,
-        config: data.config_json || {},
-        subscription_status: data.subscription_status,
-        seats: data.seats
-      }
-    });
+    return res.status(200).json({ status: 'ok', tenant: ctx.company, role: ctx.role });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: e.message || String(e) });
   }

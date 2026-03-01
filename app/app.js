@@ -1,3 +1,14 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// If you created app/config.js, use this import:
+// import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+
+// Otherwise (quick start): paste your values here:
+const SUPABASE_URL = "https://aesyrhtzdywvsxxffatj.supabase.co";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 (function () {
   // ─────────────────────────────────────────────────────────
   // Tenant UI
@@ -8,6 +19,11 @@
 
   const btnCoudersport = document.getElementById('ctaCoudersport');
   const btnWellsboro   = document.getElementById('ctaWellsboro');
+
+  // ─────────────────────────────────────────────────────────
+  // Auth UI (minimal)
+  // ─────────────────────────────────────────────────────────
+  const signOutBtn = document.getElementById('signOutBtn');
 
   // ─────────────────────────────────────────────────────────
   // Addresses UI
@@ -86,16 +102,34 @@
   let SELECTED_ID = null;
   let REPS = [];
   let REP_BY_ID = {};
+  let ROLE = 'manager'; // from server context
+
+  // ─────────────────────────────────────────────────────────
+  // Auth fetch wrapper (Bearer token)
+  // ─────────────────────────────────────────────────────────
+  async function getTokenOrThrow() {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+    if (!token) throw new Error('Not signed in.');
+    return token;
+  }
+
+  async function authedFetch(url, opts = {}) {
+    const token = await getTokenOrThrow();
+    const headers = Object.assign({}, opts.headers || {}, {
+      Authorization: `Bearer ${token}`
+    });
+
+    // Add JSON header if body is present and content-type not set
+    if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+
+    const r = await fetch(url, Object.assign({}, opts, { headers }));
+    return r;
+  }
 
   // ─────────────────────────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────────────────────────
-  function slugFromQuery() {
-    const params = new URLSearchParams(location.search);
-    const s = (params.get('slug') || '').trim().toLowerCase();
-    return s || null;
-  }
-
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, '&amp;')
@@ -105,29 +139,36 @@
       .replace(/'/g, '&#039;');
   }
 
-  // ─────────────────────────────────────────────────────────
-  // Role persistence (simple session)
-  // ─────────────────────────────────────────────────────────
+  // NOTE:
+  // Rep selection + switch user is now only meaningful for manager/admin.
+  // True "rep mode" should come from Auth role + reps.user_id mapping.
+  // We'll keep your UI controls, but server will enforce rep permissions.
+
   function saveActiveRep(rep) {
     localStorage.setItem('fieldos_active_rep', JSON.stringify(rep));
   }
-
   function loadActiveRep() {
     try { return JSON.parse(localStorage.getItem('fieldos_active_rep') || 'null'); }
     catch (e) { return null; }
   }
-
   function clearActiveRep() {
     localStorage.removeItem('fieldos_active_rep');
   }
 
   function applyRoleUI(activeRep) {
+    // If server role is rep, lock UI regardless of dropdown
+    if (String(ROLE).toLowerCase() === 'rep') {
+      repSelect.disabled = true;
+      switchUserBtn.style.display = 'none';
+      return;
+    }
+
     const role = activeRep ? String(activeRep.role || '').toLowerCase() : 'manager';
 
     if (role === 'rep') {
       repSelect.value = activeRep.id;
-      repSelect.disabled = true;        // lock in rep mode
-      switchUserBtn.style.display = ''; // show escape hatch
+      repSelect.disabled = true;
+      switchUserBtn.style.display = '';
     } else {
       repSelect.disabled = false;
       switchUserBtn.style.display = 'none';
@@ -135,27 +176,31 @@
   }
 
   function currentRepIdForFiltering() {
+    // If server role is rep, the server will force rep_id anyway.
+    // For manager/admin, allow optional filtering.
+    if (String(ROLE).toLowerCase() === 'rep') return '';
     const activeRep = loadActiveRep();
     if (activeRep && String(activeRep.role || '').toLowerCase() === 'rep') return activeRep.id;
     return repSelect.value || '';
   }
 
   // ─────────────────────────────────────────────────────────
-  // Tenant config
+  // Tenant config (SECURED: no slug)
   // ─────────────────────────────────────────────────────────
   async function loadTenantConfig() {
-    const slug = slugFromQuery() || 'zito';
-    const r = await fetch(`/api/tenant-config?slug=${encodeURIComponent(slug)}`);
-    if (!r.ok) throw new Error(`tenant-config failed (${r.status})`);
+    const r = await authedFetch(`/api/tenant-config`);
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error((j && j.message) ? j.message : `tenant-config failed (${r.status})`);
+    }
     const json = await r.json();
     if (!json || json.status !== 'ok' || !json.tenant) throw new Error('Invalid tenant-config response');
+    ROLE = (json.role || 'manager');
     return json.tenant;
   }
 
   function applyBranding(tenant) {
-    if (tenant.primary_color) {
-      document.documentElement.style.setProperty('--brand', tenant.primary_color);
-    }
+    if (tenant.primary_color) document.documentElement.style.setProperty('--brand', tenant.primary_color);
 
     elName.textContent = tenant.name || tenant.slug || 'FieldOS';
 
@@ -183,19 +228,23 @@
   }
 
   // ─────────────────────────────────────────────────────────
-  // Addresses
+  // Addresses (SECURED: no slug)
   // ─────────────────────────────────────────────────────────
   async function fetchAddresses() {
-    const slug = slugFromQuery() || 'zito';
     const territory = territorySelect.value ? territorySelect.value : '';
     const repId = currentRepIdForFiltering();
 
-    let url = `/api/addresses?slug=${encodeURIComponent(slug)}`;
-    if (territory) url += `&territory=${encodeURIComponent(territory)}`;
-    if (repId) url += `&rep_id=${encodeURIComponent(repId)}`;
+    let url = `/api/addresses`;
+    const qs = [];
+    if (territory) qs.push(`territory=${encodeURIComponent(territory)}`);
+    if (repId) qs.push(`rep_id=${encodeURIComponent(repId)}`);
+    if (qs.length) url += `?${qs.join('&')}`;
 
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`addresses failed (${r.status})`);
+    const r = await authedFetch(url);
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error((j && j.message) ? j.message : `addresses failed (${r.status})`);
+    }
     const json = await r.json();
     if (!json || json.status !== 'ok') throw new Error('Invalid addresses response');
     return json.rows || [];
@@ -210,11 +259,9 @@
   function buildTerritoryDropdown(allRows) {
     const terrs = uniqueTerritories(allRows);
     const current = territorySelect.value || '';
-
     territorySelect.innerHTML =
       `<option value="">All Territories</option>` +
       terrs.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-
     territorySelect.value = terrs.includes(current) ? current : '';
   }
 
@@ -225,7 +272,6 @@
 
   function renderAddresses(rows) {
     ADDRESSES = rows;
-
     addrCount.textContent = `${rows.length} address${rows.length === 1 ? '' : 'es'} loaded`;
 
     if (SELECTED_ID && !rows.some(r => r.id === SELECTED_ID)) {
@@ -264,12 +310,14 @@
   }
 
   // ─────────────────────────────────────────────────────────
-  // Reps
+  // Reps (SECURED: no slug)
   // ─────────────────────────────────────────────────────────
   async function fetchReps() {
-    const slug = slugFromQuery() || 'zito';
-    const r = await fetch(`/api/reps?slug=${encodeURIComponent(slug)}`);
-    if (!r.ok) throw new Error(`reps failed (${r.status})`);
+    const r = await authedFetch(`/api/reps`);
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error((j && j.message) ? j.message : `reps failed (${r.status})`);
+    }
     const json = await r.json();
     if (!json || json.status !== 'ok') throw new Error('Invalid reps response');
     return json.reps || [];
@@ -286,19 +334,23 @@
   }
 
   // ─────────────────────────────────────────────────────────
-  // Metrics
+  // Metrics (SECURED: no slug)
   // ─────────────────────────────────────────────────────────
   async function fetchMetrics() {
-    const slug = slugFromQuery() || 'zito';
     const territory = territorySelect.value ? territorySelect.value : '';
     const repId = currentRepIdForFiltering();
 
-    let url = `/api/metrics?slug=${encodeURIComponent(slug)}`;
-    if (territory) url += `&territory=${encodeURIComponent(territory)}`;
-    if (repId) url += `&rep_id=${encodeURIComponent(repId)}`;
+    let url = `/api/metrics`;
+    const qs = [];
+    if (territory) qs.push(`territory=${encodeURIComponent(territory)}`);
+    if (repId) qs.push(`rep_id=${encodeURIComponent(repId)}`);
+    if (qs.length) url += `?${qs.join('&')}`;
 
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`metrics failed (${r.status})`);
+    const r = await authedFetch(url);
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error((j && j.message) ? j.message : `metrics failed (${r.status})`);
+    }
     const json = await r.json();
     if (!json || json.status !== 'ok') throw new Error('Invalid metrics response');
     return json.metrics;
@@ -323,7 +375,7 @@
   }
 
   // ─────────────────────────────────────────────────────────
-  // Disposition
+  // Disposition (SECURED: no slug; rep enforced server-side)
   // ─────────────────────────────────────────────────────────
   function buildSoldPackages() {
     const pkgs = (TENANT && TENANT.config && Array.isArray(TENANT.config.packages)) ? TENANT.config.packages : [];
@@ -343,40 +395,30 @@
     }
 
     const payload = {
-      slug: (slugFromQuery() || 'zito'),
       address_id: SELECTED_ID,
       outcome: outcomeSel.value,
       note: noteEl.value || ''
     };
 
-    if (payload.outcome === 'sold') {
-      payload.sold_package = soldPackageSel.value || '';
+    if (payload.outcome === 'sold') payload.sold_package = soldPackageSel.value || '';
+
+    // manager/admin optionally sends rep_id (server will ignore for rep role)
+    const repId = currentRepIdForFiltering();
+    if (String(ROLE).toLowerCase() !== 'rep') {
+      // manager/admin: require a selected rep to attribute the disposition
+      if (!repId) {
+        formMsg.textContent = 'Select a rep first.';
+        return;
+      }
+      payload.rep_id = repId;
     }
-
-    // Rep ID rules: rep mode forced, manager uses dropdown
-    const activeRep = loadActiveRep();
-    let repId = null;
-
-    if (activeRep && String(activeRep.role || '').toLowerCase() === 'rep') {
-      repId = activeRep.id;
-    } else {
-      repId = repSelect.value || null;
-    }
-
-    if (!repId) {
-      formMsg.textContent = 'Select a rep first.';
-      return;
-    }
-
-    payload.rep_id = repId;
 
     submitBtn.disabled = true;
     formMsg.textContent = 'Submitting…';
 
     try {
-      const r = await fetch('/api/disposition', {
+      const r = await authedFetch('/api/disposition', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
@@ -385,7 +427,6 @@
 
       formMsg.textContent = 'Saved ✅';
       noteEl.value = '';
-
       await refreshAll();
     } catch (e) {
       formMsg.textContent = `Error: ${e.message || e}`;
@@ -395,10 +436,34 @@
   }
 
   // ─────────────────────────────────────────────────────────
+  // Auth gating (minimal)
+  // ─────────────────────────────────────────────────────────
+  async function ensureSignedInOrExplain() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      if (signOutBtn) signOutBtn.style.display = '';
+      return true;
+    }
+
+    elName.textContent = 'FieldOS';
+    elDebug.textContent =
+      'AUTH REQUIRED:\n' +
+      'You must be signed in to use FieldOS now (RLS enabled).\n\n' +
+      'Open Supabase Auth and sign in from your login UI.\n' +
+      'If you have not added the login form yet, do that next.';
+
+    if (signOutBtn) signOutBtn.style.display = 'none';
+    return false;
+  }
+
+  // ─────────────────────────────────────────────────────────
   // Boot
   // ─────────────────────────────────────────────────────────
   async function boot() {
     try {
+      const ok = await ensureSignedInOrExplain();
+      if (!ok) return;
+
       TENANT = await loadTenantConfig();
       applyBranding(TENANT);
       elDebug.textContent = JSON.stringify(TENANT, null, 2);
@@ -407,12 +472,18 @@
       const reps = await fetchReps();
       renderRepDropdown(reps);
 
+      // If server role is rep, hide rep selection UI (optional)
+      if (String(ROLE).toLowerCase() === 'rep') {
+        repSelect.style.display = 'none';
+        switchUserBtn.style.display = 'none';
+      }
+
       // packages + disposition UI
       buildSoldPackages();
       updateSoldVisibility();
       outcomeSel.addEventListener('change', updateSoldVisibility);
 
-      // restore role
+      // restore manager rep filter
       const saved = loadActiveRep();
       if (saved && saved.id && REP_BY_ID[saved.id]) {
         repSelect.value = saved.id;
@@ -423,7 +494,7 @@
       }
 
       // build territory dropdown from all addresses (unfiltered)
-      const allRows = await fetch(`/api/addresses?slug=${encodeURIComponent(slugFromQuery() || 'zito')}`)
+      const allRows = await authedFetch(`/api/addresses`)
         .then(r => r.json())
         .then(j => (j && j.status === 'ok') ? j.rows : []);
 
@@ -452,6 +523,13 @@
 
       territorySelect.addEventListener('change', refreshAll);
       submitBtn.addEventListener('click', submitDisposition);
+
+      if (signOutBtn) {
+        signOutBtn.addEventListener('click', async () => {
+          await supabase.auth.signOut();
+          location.reload();
+        });
+      }
     } catch (e) {
       elName.textContent = 'FieldOS';
       elDebug.textContent = `ERROR:\n${e.message || e}`;
