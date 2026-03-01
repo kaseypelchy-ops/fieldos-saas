@@ -23,96 +23,97 @@
       <button id="signOutBtn" class="ctaBtn" type="button" style="display:none;">Sign Out</button>
     </div>
   </header>
-    <div id="authBox" class="card" style="max-width:420px;margin:40px auto;">
-      <h2>Sign In</h2>
 
-      <input id="authEmail" class="input" placeholder="Email" />
-      <input id="authPassword" type="password" class="input" placeholder="Password" />
+  <div id="authBox" class="card" style="max-width:420px;margin:40px auto;">
+    <h2>Sign In</h2>
 
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button id="loginBtn" class="ctaBtn">Login</button>
-        <button id="signupBtn" class="ctaBtn">Sign Up</button>
-      </div>
+    <input id="authEmail" type="email" class="input" placeholder="Email" autocomplete="email" />
+    <input id="authPassword" type="password" class="input" placeholder="Password" autocomplete="current-password" />
 
-      <button id="magicBtn" class="ctaBtn" style="margin-top:10px;width:100%;">
-        Send Magic Link
-      </button>
-
-      <div id="authMsg" class="muted" style="margin-top:10px;"></div>
-    </div>
-    
-<main class="container">
-  <section class="card">
-    <div class="row">
-      <h2 style="margin:0;">Addresses</h2>
-
-      <div class="rowRight">
-        <select id="territorySelect" class="input">
-          <option value="">All Territories</option>
-        </select>
-        <select id="repSelect" class="input">
-          <option value="">Select Rep</option>
-        </select>
-        <button id="refreshBtn" class="ctaBtn" type="button">Refresh</button>
-        <button id="switchUserBtn" class="ctaBtn" type="button" style="display:none;">Switch User</button>
-      </div>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button id="loginBtn" class="ctaBtn" type="button">Login</button>
+      <button id="signupBtn" class="ctaBtn" type="button">Sign Up</button>
     </div>
 
-    <div class="split">
-      <div>
-        <div id="addrCount" class="muted" style="margin:8px 0 10px;">Loading…</div>
-        <div id="addrList" class="addrList"></div>
+    <button id="magicBtn" class="ctaBtn" type="button" style="margin-top:10px;width:100%;">
+      Send Magic Link
+    </button>
+
+    <div id="authMsg" class="muted" style="margin-top:10px;"></div>
+  </div>
+
+  <main class="container">
+    <section class="card">
+      <div class="row">
+        <h2 style="margin:0;">Addresses</h2>
+
+        <div class="rowRight">
+          <select id="territorySelect" class="input">
+            <option value="">All Territories</option>
+          </select>
+          <select id="repSelect" class="input">
+            <option value="">Select Rep</option>
+          </select>
+          <button id="refreshBtn" class="ctaBtn" type="button">Refresh</button>
+          <button id="switchUserBtn" class="ctaBtn" type="button" style="display:none;">Switch User</button>
+        </div>
       </div>
 
-      <div>
-        <div class="panelTitle">Performance</div>
-        <div id="metricsGrid" class="metricsGrid">
-          <div class="metric"><div class="k">Assigned</div><div id="mAssigned" class="v">—</div></div>
-          <div class="metric"><div class="k">Dispositions</div><div id="mDisp" class="v">—</div></div>
-          <div class="metric"><div class="k">Sales</div><div id="mSold" class="v">—</div></div>
-          <div class="metric"><div class="k">Not Home</div><div id="mNH" class="v">—</div></div>
-          <div class="metric"><div class="k">Not Interested</div><div id="mNI" class="v">—</div></div>
-          <div class="metric"><div class="k">Go Back</div><div id="mGB" class="v">—</div></div>
-          <div class="metric wide"><div class="k">Close Rate</div><div id="mCR" class="v">—</div></div>
+      <div class="split">
+        <div>
+          <div id="addrCount" class="muted" style="margin:8px 0 10px;">Loading…</div>
+          <div id="addrList" class="addrList"></div>
         </div>
 
-        <hr style="border:0;border-top:1px solid rgba(255,255,255,0.10); margin:14px 0;">
-        <div class="panelTitle">Disposition</div>
-        <div id="selectedAddr" class="selectedAddr muted">Select an address to disposition</div>
-
-        <div class="form">
-          <label class="label">Outcome</label>
-          <select id="outcome" class="input">
-            <option value="not_home">Not Home</option>
-            <option value="not_interested">Not Interested</option>
-            <option value="go_back">Go Back Later</option>
-            <option value="sold">Sold</option>
-          </select>
-
-          <div id="soldWrap" style="display:none;">
-            <label class="label">Sold Package</label>
-            <select id="soldPackage" class="input"></select>
+        <div>
+          <div class="panelTitle">Performance</div>
+          <div id="metricsGrid" class="metricsGrid">
+            <div class="metric"><div class="k">Assigned</div><div id="mAssigned" class="v">—</div></div>
+            <div class="metric"><div class="k">Dispositions</div><div id="mDisp" class="v">—</div></div>
+            <div class="metric"><div class="k">Sales</div><div id="mSold" class="v">—</div></div>
+            <div class="metric"><div class="k">Not Home</div><div id="mNH" class="v">—</div></div>
+            <div class="metric"><div class="k">Not Interested</div><div id="mNI" class="v">—</div></div>
+            <div class="metric"><div class="k">Go Back</div><div id="mGB" class="v">—</div></div>
+            <div class="metric wide"><div class="k">Close Rate</div><div id="mCR" class="v">—</div></div>
           </div>
 
-          <label class="label">Note</label>
-          <textarea id="note" class="input" rows="4" placeholder="Optional note..."></textarea>
+          <hr style="border:0;border-top:1px solid rgba(255,255,255,0.10); margin:14px 0;">
+          <div class="panelTitle">Disposition</div>
+          <div id="selectedAddr" class="selectedAddr muted">Select an address to disposition</div>
 
-          <button id="submitDisp" class="ctaBtn" type="button" style="width:100%; margin-top:10px;">
-            Submit Disposition
-          </button>
+          <div class="form">
+            <label class="label">Outcome</label>
+            <select id="outcome" class="input">
+              <option value="not_home">Not Home</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="go_back">Go Back Later</option>
+              <option value="sold">Sold</option>
+            </select>
 
-          <div id="formMsg" class="muted" style="margin-top:10px;"></div>
+            <div id="soldWrap" style="display:none;">
+              <label class="label">Sold Package</label>
+              <select id="soldPackage" class="input"></select>
+            </div>
+
+            <label class="label">Note</label>
+            <textarea id="note" class="input" rows="4" placeholder="Optional note..."></textarea>
+
+            <button id="submitDisp" class="ctaBtn" type="button" style="width:100%; margin-top:10px;">
+              Submit Disposition
+            </button>
+
+            <div id="formMsg" class="muted" style="margin-top:10px;"></div>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="card">
-    <h2>Status</h2>
-    <pre id="debug" class="debug">Loading tenant config…</pre>
-  </section>
-</main>
+    <section class="card">
+      <h2>Status</h2>
+      <pre id="debug" class="debug">Loading tenant config…</pre>
+    </section>
+  </main>
 
-<script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
