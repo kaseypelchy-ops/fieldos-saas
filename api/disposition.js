@@ -9,104 +9,114 @@ module.exports = async (req, res) => {
     const supabase = supabaseAnonWithToken(token);
 
     const auth = await requireUser(req, supabase);
-    if (auth.error) {
-      return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
-    }
+    if (auth.error) return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
 
     const ctx = await getContext(supabase, auth.user);
-    if (ctx.error) {
-      return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
-    }
+    if (ctx.error) return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
 
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const body = req.body || {};
+    const address_id = String(body.address_id || '').trim();
+    const outcome = String(body.outcome || '').trim();
+    const note = String(body.note || '').trim();
+    const sold_package = String(body.sold_package || '').trim();
+    const rep_id_param = String(body.rep_id || '').trim(); // manager can pass, rep cannot
 
-    const address_id    = String(body.address_id || '').trim();
-    const outcome       = String(body.outcome || '').trim().toLowerCase();
-    const note          = String(body.note || '').trim();
-    const sold_package  = String(body.sold_package || '').trim();
+    if (!address_id) return res.status(400).json({ status: 'error', message: 'Missing address_id' });
+    if (!outcome) return res.status(400).json({ status: 'error', message: 'Missing outcome' });
 
-    if (!address_id || !outcome) {
-      return res.status(400).json({ status: 'error', message: 'Missing address_id or outcome' });
-    }
-
-    // ✅ Basic outcome validation (keeps data clean)
-    const allowed = new Set(['not_home', 'not_interested', 'go_back', 'sold']);
-    if (!allowed.has(outcome)) {
-      return res.status(400).json({ status: 'error', message: `Invalid outcome: ${outcome}` });
-    }
-
-    // Determine rep_id
-    let rep_id = String(body.rep_id || '').trim();
-
-    if (ctx.role === 'rep') {
+    // Determine rep_id based on role
+    let rep_id = '';
+    if (String(ctx.role).toLowerCase() === 'rep') {
       const myRepId = await getMyRepId(supabase, ctx.company.id, auth.user.id);
-      if (!myRepId) {
-        return res.status(403).json({
-          status: 'error',
-          message: 'Rep is not linked to an auth user (reps.user_id missing)'
-        });
-      }
-      rep_id = myRepId; // ✅ forced
+      if (!myRepId) return res.status(403).json({ status: 'error', message: 'Rep is not linked to an auth user (reps.user_id missing)' });
+      rep_id = myRepId;
     } else {
-      if (!rep_id) return res.status(400).json({ status: 'error', message: 'Manager must provide rep_id' });
+      // manager/admin must attribute disposition to a rep
+      if (!rep_id_param) return res.status(400).json({ status: 'error', message: 'Missing rep_id (manager must select a rep)' });
+      rep_id = rep_id_param;
     }
 
-    // ✅ Load the address and validate it belongs to this company
+    // Load address (needed for territory + claim logic)
     const { data: addr, error: addrErr } = await supabase
       .from('addresses')
-      .select('id, company_id, territory, assigned_rep_id, status')
+      .select('id, territory, assigned_rep_id, company_id')
       .eq('id', address_id)
       .maybeSingle();
 
     if (addrErr) return res.status(500).json({ status: 'error', message: addrErr.message });
     if (!addr) return res.status(404).json({ status: 'error', message: 'Address not found' });
 
-    if (String(addr.company_id) !== String(ctx.company.id)) {
-      return res.status(403).json({ status: 'error', message: 'Address is not in your company' });
-    }
+    // Insert disposition (RLS enforced)
+    const dispInsert = {
+      company_id: ctx.company.id,
+      address_id,
+      rep_id,
+      outcome,
+      note: note || null,
+      sold_package: outcome === 'sold' ? (sold_package || null) : null,
+      territory: addr.territory || null
+    };
 
-    // ✅ Rep rule: can work their own addresses OR pick up unassigned
-    // (Territory restriction is handled by how you load addresses for reps)
-    if (ctx.role === 'rep') {
-      const assigned = addr.assigned_rep_id ? String(addr.assigned_rep_id) : '';
-      if (assigned && assigned !== String(rep_id)) {
-        return res.status(403).json({
-          status: 'error',
-          message: 'This address is assigned to another rep'
-        });
-      }
-    }
-
-    // Insert disposition
-    const { data: disp, error: dErr } = await supabase
+    const { data: disp, error: dispErr } = await supabase
       .from('dispositions')
-      .insert([{
-        company_id: ctx.company.id,
-        address_id,
-        rep_id,
-        outcome,
-        note,
-        sold_package: outcome === 'sold' ? (sold_package || null) : null
-      }])
-      .select('*')
-      .single();
+      .insert(dispInsert)
+      .select('id, created_at')
+      .maybeSingle();
 
-    if (dErr) return res.status(500).json({ status: 'error', message: dErr.message });
+    if (dispErr) return res.status(403).json({ status: 'error', message: dispErr.message });
 
-    // Update address status + assignment (rep “claims” if it was unassigned)
-    const { error: aErr } = await supabase
+    // Address Claim + Intelligence update:
+    // - if unassigned, assign to rep
+    // - always update last touch/outcome/note/touch_count
+    // - set first touch only if missing
+    const nowIso = new Date().toISOString();
+
+    // Build update object
+    const addrUpdate = {
+      status: outcome,
+      last_touched_at: nowIso,
+      last_touched_by_rep_id: rep_id,
+      last_outcome: outcome,
+      last_note: note || null
+    };
+
+    // claim if unassigned
+    if (!addr.assigned_rep_id) {
+      addrUpdate.assigned_rep_id = rep_id;
+    }
+
+    // Set first touch if empty
+    // (We can’t “conditionally set only if null” in one update reliably via supabase,
+    // so we do a tiny second read to avoid overwriting.)
+    const { data: addrCheck, error: addrCheckErr } = await supabase
       .from('addresses')
-      .update({
-        status: outcome,
-        assigned_rep_id: rep_id,               // ✅ claim / keep assignment
-        updated_at: new Date().toISOString()
-      })
+      .select('first_touched_at, touch_count')
       .eq('id', address_id)
-      .eq('company_id', ctx.company.id);       // ✅ prevents cross-company update
+      .maybeSingle();
 
-    if (aErr) return res.status(500).json({ status: 'error', message: aErr.message });
+    if (addrCheckErr) return res.status(500).json({ status: 'error', message: addrCheckErr.message });
 
-    return res.status(200).json({ status: 'ok', disposition: disp });
+    if (!addrCheck.first_touched_at) {
+      addrUpdate.first_touched_at = nowIso;
+      addrUpdate.first_touched_by_rep_id = rep_id;
+    }
+
+    // increment touch_count
+    addrUpdate.touch_count = (Number(addrCheck.touch_count || 0) + 1);
+
+    const { error: updErr } = await supabase
+      .from('addresses')
+      .update(addrUpdate)
+      .eq('id', address_id);
+
+    if (updErr) return res.status(403).json({ status: 'error', message: updErr.message });
+
+    return res.status(200).json({
+      status: 'ok',
+      disposition_id: disp?.id || null,
+      claimed: !addr.assigned_rep_id, // true if it was unassigned and we assigned it
+      address_id
+    });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: e.message || String(e) });
   }

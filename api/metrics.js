@@ -1,11 +1,5 @@
-// /api/metrics.js
+// api/metrics.js
 const { supabaseAnonWithToken, requireUser, getContext, getMyRepId } = require('./_auth');
-
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
 
 module.exports = async (req, res) => {
   try {
@@ -14,141 +8,136 @@ module.exports = async (req, res) => {
     const token = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const supabase = supabaseAnonWithToken(token);
 
-    // 1) Require signed-in user
     const auth = await requireUser(req, supabase);
-    if (auth.error) {
-      return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
-    }
+    if (auth.error) return res.status(auth.error.status).json({ status: 'error', message: auth.error.message });
 
-    // 2) Resolve company + role from membership (RLS enforced)
     const ctx = await getContext(supabase, auth.user);
-    if (ctx.error) {
-      return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
-    }
+    if (ctx.error) return res.status(ctx.error.status).json({ status: 'error', message: ctx.error.message });
 
     const territory = String(req.query.territory || '').trim();
     const rep_id_param = String(req.query.rep_id || '').trim();
 
-    // 3) Role rules: reps can only see their own metrics
+    // Optional date window (filters dispositions.created_at)
+    // Accepts YYYY-MM-DD or ISO; we convert YYYY-MM-DD to range edges.
+    const fromRaw = String(req.query.from || '').trim(); // e.g. 2026-02-01
+    const toRaw   = String(req.query.to || '').trim();   // e.g. 2026-02-28
+
+    let fromIso = '';
+    let toIso = '';
+
+    if (fromRaw) {
+      fromIso = fromRaw.length === 10 ? `${fromRaw}T00:00:00.000Z` : fromRaw;
+    }
+    if (toRaw) {
+      // inclusive end-of-day if YYYY-MM-DD
+      toIso = toRaw.length === 10 ? `${toRaw}T23:59:59.999Z` : toRaw;
+    }
+
+    // Resolve rep filter
     let repId = '';
-    if (ctx.role === 'rep') {
+    if (String(ctx.role).toLowerCase() === 'rep') {
       const myRepId = await getMyRepId(supabase, ctx.company.id, auth.user.id);
-      if (!myRepId) {
-        return res.status(403).json({
-          status: 'error',
-          message: 'Rep is not linked to an auth user (reps.user_id missing).'
-        });
-      }
+      if (!myRepId) return res.status(403).json({ status: 'error', message: 'Rep is not linked to an auth user (reps.user_id missing)' });
       repId = myRepId;
     } else {
-      // manager/admin can optionally filter to a rep
       repId = rep_id_param || '';
     }
 
-    // 4) Assigned count (addresses)
-    let addrQ = supabase
+    // -----------------------------
+    // Addresses counts
+    // -----------------------------
+    // "assigned": count addresses assigned to rep (or all assigned if no rep filter)
+    // "unassigned_visible": addresses unassigned (scoped by territory)
+    let addrBase = supabase
       .from('addresses')
-      .select('id', { count: 'exact', head: true });
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', ctx.company.id);
 
-    // RLS already scopes to company; optional filters:
-    if (territory) addrQ = addrQ.eq('territory', territory);
-    if (repId) addrQ = addrQ.eq('assigned_rep_id', repId);
+    if (territory) addrBase = addrBase.eq('territory', territory);
 
-    const { count: assignedCount, error: addrErr } = await addrQ;
-    if (addrErr) {
-      return res.status(500).json({ status: 'error', message: addrErr.message });
-    }
+    // assigned count
+    let assignedQ = addrBase;
+    if (repId) assignedQ = assignedQ.eq('assigned_rep_id', repId);
+    else assignedQ = assignedQ.not('assigned_rep_id', 'is', null);
 
-    // 5) Disposition aggregation
-    const counts = { sold: 0, not_home: 0, not_interested: 0, go_back: 0, other: 0 };
-    let totalDisp = 0;
+    const { count: assignedCount, error: assignedErr } = await assignedQ;
+    if (assignedErr) return res.status(500).json({ status: 'error', message: assignedErr.message });
 
-    function baseDispQ() {
-      let q = supabase
-        .from('dispositions')
-        .select('outcome');
+    // unassigned visible (for rep or manager)
+    let unassignedQ = addrBase.is('assigned_rep_id', null);
+    const { count: unassignedCount, error: unassignedErr } = await unassignedQ;
+    if (unassignedErr) return res.status(500).json({ status: 'error', message: unassignedErr.message });
 
-      // RLS scopes to company; optional rep filter
-      if (repId) q = q.eq('rep_id', repId);
-      return q;
-    }
-
-    if (!territory) {
-      const { data: dispRows, error: dispErr } = await baseDispQ().limit(20000);
-      if (dispErr) {
-        return res.status(500).json({ status: 'error', message: dispErr.message });
-      }
-
-      (dispRows || []).forEach(r => {
-        const o = String(r.outcome || '').toLowerCase();
-        if (o in counts) counts[o] += 1;
-        else counts.other += 1;
-      });
-
-      totalDisp = (dispRows || []).length;
-    } else {
-      // Territory filter: find address ids in territory (RLS scopes to company)
-      const { data: addrRows, error: tErr } = await supabase
+    // touches sum (optional, lightweight)
+    // NOTE: Supabase cannot sum with head:true easily, so we fetch small set of touch_count only when filtered.
+    // For big datasets you can remove this or move to RPC later.
+    let touches = null;
+    try {
+      let tQ = supabase
         .from('addresses')
-        .select('id')
-        .eq('territory', territory)
-        .limit(10000);
+        .select('touch_count')
+        .eq('company_id', ctx.company.id);
 
-      if (tErr) {
-        return res.status(500).json({ status: 'error', message: tErr.message });
+      if (territory) tQ = tQ.eq('territory', territory);
+      if (repId) {
+        // touches for addresses assigned to rep OR unassigned (rep can work both)
+        tQ = tQ.or(`assigned_rep_id.eq.${repId},assigned_rep_id.is.null`);
       }
 
-      const ids = (addrRows || []).map(r => r.id);
-
-      if (ids.length === 0) {
-        return res.status(200).json({
-          status: 'ok',
-          metrics: {
-            assigned: assignedCount || 0,
-            dispositions: 0,
-            sold: 0,
-            not_home: 0,
-            not_interested: 0,
-            go_back: 0,
-            other: 0,
-            close_rate: 0
-          }
-        });
+      const { data: tRows } = await tQ.limit(5000);
+      if (Array.isArray(tRows)) {
+        touches = tRows.reduce((s, r) => s + Number(r.touch_count || 0), 0);
       }
-
-      // Chunk IN lists so it scales
-      for (const idsChunk of chunk(ids, 1000)) {
-        const { data: dispRows, error: dispErr } = await baseDispQ()
-          .in('address_id', idsChunk)
-          .limit(20000);
-
-        if (dispErr) {
-          return res.status(500).json({ status: 'error', message: dispErr.message });
-        }
-
-        (dispRows || []).forEach(r => {
-          const o = String(r.outcome || '').toLowerCase();
-          if (o in counts) counts[o] += 1;
-          else counts.other += 1;
-        });
-
-        totalDisp += (dispRows || []).length;
-      }
+    } catch (_) {
+      touches = null;
     }
 
-    const closeRate = totalDisp > 0 ? (counts.sold / totalDisp) : 0;
+    // -----------------------------
+    // Dispositions breakdown
+    // -----------------------------
+    let dispQ = supabase
+      .from('dispositions')
+      .select('outcome, address_id')
+      .eq('company_id', ctx.company.id);
+
+    if (repId) dispQ = dispQ.eq('rep_id', repId);
+    if (territory) dispQ = dispQ.eq('territory', territory);
+    if (fromIso) dispQ = dispQ.gte('created_at', fromIso);
+    if (toIso) dispQ = dispQ.lte('created_at', toIso);
+
+    const { data: dispRows, error: dispErr } = await dispQ.limit(20000);
+    if (dispErr) return res.status(500).json({ status: 'error', message: dispErr.message });
+
+    const counts = { sold: 0, not_home: 0, not_interested: 0, go_back: 0, other: 0 };
+    const workedSet = new Set();
+
+    (dispRows || []).forEach(r => {
+      const o = String(r.outcome || '').toLowerCase();
+      if (o in counts) counts[o] += 1;
+      else counts.other += 1;
+      if (r.address_id) workedSet.add(String(r.address_id));
+    });
+
+    const dispositions = (dispRows || []).length;
+    const worked_addresses = workedSet.size;
+
+    const contacted = counts.sold + counts.not_home + counts.not_interested + counts.go_back;
+    const close_rate = contacted > 0 ? Number(((counts.sold / contacted) * 100).toFixed(1)) : 0;
 
     return res.status(200).json({
       status: 'ok',
       metrics: {
         assigned: assignedCount || 0,
-        dispositions: totalDisp,
+        unassigned_visible: unassignedCount || 0,
+        dispositions,
+        worked_addresses,
         sold: counts.sold,
         not_home: counts.not_home,
         not_interested: counts.not_interested,
         go_back: counts.go_back,
-        other: counts.other,
-        close_rate: Number((closeRate * 100).toFixed(1))
+        contacted,
+        close_rate,
+        touches
       }
     });
   } catch (e) {
