@@ -283,45 +283,92 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 
   function renderAddresses(rows) {
-    ADDRESSES = rows;
-    addrCount.textContent = `${rows.length} address${rows.length === 1 ? "" : "es"} loaded`;
+  ADDRESSES = rows;
+  addrCount.textContent = `${rows.length} address${rows.length === 1 ? '' : 'es'} loaded`;
 
-    if (SELECTED_ID && !rows.some((r) => r.id === SELECTED_ID)) {
-      SELECTED_ID = null;
-      selectedAddr.textContent = "Select an address to disposition";
-    }
+  if (SELECTED_ID && !rows.some(r => r.id === SELECTED_ID)) {
+    SELECTED_ID = null;
+    selectedAddr.textContent = 'Select an address to disposition';
+  }
 
-    addrList.innerHTML = rows
-      .map((r) => {
-        const isSel = r.id === SELECTED_ID;
-        const assigned = r.reps && r.reps.full_name ? ` · Assigned: ${escapeHtml(r.reps.full_name)}` : "";
-        return `
-        <div class="addrItem ${isSel ? "selected" : ""}" data-id="${escapeHtml(r.id)}">
-          <div class="addrTop">
-            <div>
-              <div class="addrName">${escapeHtml(r.address)}, ${escapeHtml(r.city)} ${escapeHtml(r.state)} ${escapeHtml(r.zip)}</div>
-              <div class="addrMeta">${escapeHtml(r.territory || "")}${assigned}</div>
+  addrList.innerHTML = rows.map(r => {
+    const isSel = (r.id === SELECTED_ID);
+    const assignedName = (r.reps && r.reps.full_name) ? r.reps.full_name : '';
+    const isUnassigned = !r.assigned_rep_id;
+
+    // Only show claim button if unassigned AND user is a rep
+    const showClaim = (String(ROLE).toLowerCase() === 'rep') && isUnassigned;
+
+    return `
+      <div class="addrItem ${isSel ? 'selected' : ''}" data-id="${escapeHtml(r.id)}">
+        <div class="addrTop">
+          <div>
+            <div class="addrName">${escapeHtml(r.address)}, ${escapeHtml(r.city)} ${escapeHtml(r.state)} ${escapeHtml(r.zip)}</div>
+            <div class="addrMeta">
+              ${escapeHtml(r.territory || '')}
+              ${assignedName ? ` · Assigned: ${escapeHtml(assignedName)}` : ' · Unassigned'}
             </div>
+          </div>
+
+          <div style="display:flex; gap:8px; align-items:center;">
             ${statusBadge(r.status)}
+            ${showClaim ? `<button class="ctaBtn claimBtn" type="button" data-claim="${escapeHtml(r.id)}">Claim</button>` : ``}
           </div>
         </div>
-      `;
-      })
-      .join("");
+      </div>
+    `;
+  }).join('');
 
-    Array.from(addrList.querySelectorAll(".addrItem")).forEach((el) => {
-      el.addEventListener("click", () => {
-        SELECTED_ID = el.getAttribute("data-id");
-        renderAddresses(ADDRESSES);
+  // Row click selects address (but ignore claim button clicks)
+  Array.from(addrList.querySelectorAll('.addrItem')).forEach(el => {
+    el.addEventListener('click', (evt) => {
+      if (evt.target && evt.target.closest && evt.target.closest('.claimBtn')) return;
 
-        const row = ADDRESSES.find((a) => a.id === SELECTED_ID);
-        if (row) {
-          selectedAddr.textContent = `${row.address}, ${row.city} ${row.state} ${row.zip}`;
-          formMsg.textContent = "";
-        }
-      });
+      SELECTED_ID = el.getAttribute('data-id');
+      renderAddresses(ADDRESSES);
+
+      const row = ADDRESSES.find(a => a.id === SELECTED_ID);
+      if (row) {
+        selectedAddr.textContent = `${row.address}, ${row.city} ${row.state} ${row.zip}`;
+        formMsg.textContent = '';
+      }
     });
-  }
+  });
+
+  // Claim button clicks
+  Array.from(addrList.querySelectorAll('.claimBtn')).forEach(btn => {
+    btn.addEventListener('click', async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+
+      const id = btn.getAttribute('data-claim');
+      if (!id) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Claiming…';
+
+      try {
+        const r = await authedFetch('/api/assign-address', {
+          method: 'POST',
+          body: JSON.stringify({ address_id: id })
+        });
+
+        const json = await r.json().catch(() => null);
+        if (!r.ok) throw new Error((json && json.message) ? json.message : `claim failed (${r.status})`);
+
+        formMsg.textContent = 'Claimed ✅';
+
+        // Refresh list + metrics so you immediately see assignment update
+        await refreshAll();
+      } catch (e) {
+        formMsg.textContent = `Claim error: ${e.message || e}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Claim';
+      }
+    });
+  });
+}
 
   // ─────────────────────────────────────────────────────────
   // Reps (SECURED: no slug)
